@@ -265,7 +265,8 @@ Now we need to process our numeric variables.
 ```{r}
 colscleaned_fe %>% 
   step_log(distance) %>% 
-  step_num2factor(month, week, hour) ->
+  step_num2factor(month, week, hour) %>% 
+  step_rm(tailnum)->
   numscleaned_fe
 
 numscleaned_fe
@@ -287,5 +288,83 @@ numscleaned_fe %>%
 ```
 
 ## Building models
+Decide which types of models you want to consider -- perhaps by looking at [cheat sheet](https://docs.microsoft.com/en-us/azure/machine-learning/studio/algorithm-cheat-sheet). Then determine if we need special processing to the data beyond what you've done so far. 
 
+### A basic logistic regression
+
+We can use generalized linear regression model functionality to construct a logistic regression.
+
+```{r}
+glm_unbal<- glm(was_delayed~ . , "binomial", data = train_prep1) # the dataset without upsampling 
+glm_bal<- glm(was_delayed~ . , "binomial", data = train_prep2) # the dataset with upsampling
+```
+Then we can see how these models are constructed and how they perform. 
+
+Fit measures on our *training* data
+
+```{r}
+library(broom)
+glance(glm_unbal)
+
+
+```
+Get the coefficients.
+
+```{r}
+tidy(glm_unbal)
+```
+
+Get the fitted data
+```{r}
+head(augment(glm_unbal))
+```
+
+Plot predicted vs actuals
+```{r}
+glm_unbal %>% 
+  augment() %>% 
+  ggplot(aes(x=.fitted, group=was_delayed, fill=was_delayed)) +
+  geom_density(alpha=.5) +
+  geom_vline(aes(xintercept=0)) 
+```
+This would be good model if we have no overlap of the blue and red. 
+Anything negative, have less prob of 50% of being delayed. Anything positive, prob higher than 50% of not being delayed. 
+If logit higher than 0, our model will predict not delayed
+IF logit lower than 0, our model will predict delayed
+
+Business decision where to put the cut-off line. 
+
+### Prep and predict on test data
+
+```{r}
+library(modelr)
+test_raw %>% 
+  bake(numscleaned_fe, .) %>% 
+  modelr::add_predictions(glm_unbal,var="glm_unbal") ->
+  #modelr::add_predictions(glm_unbal,var="glm_unbal_class", type="class") ->
+  test_scored
+
+test_scored %>% 
+  ggplot(aes(x=glm_unbal, group=was_delayed, fill=was_delayed)) +
+  geom_density(alpha=.5) +
+  geom_vline(aes(xintercept=0))
+  
+  head(test_scored)
+```
+
+But how many did we get right etc?
+
+```{r}
+library(yardstick)
+test_scored %>% 
+  mutate(glm_unbal_class=as.factor(
+    ifelse(glm_unbal<0, "Delayed", "Not Delayed"))) %>% 
+  conf_mat(was_delayed, glm_unbal_class)
+```
+```{r}
+test_scored %>% 
+  mutate(glm_unbal_class=as.factor(
+    ifelse(glm_unbal<0, "Delayed", "Not Delayed"))) %>% 
+  accuracy(was_delayed, glm_unbal_class)
+```
 
