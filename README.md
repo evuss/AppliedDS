@@ -200,6 +200,8 @@ flights_tbl %>%
   DataExplorer::GenerateReport()
 ```
 
+### Questions
+
 Questions arising from the basic report:
 
 1.  Why is there a day with double the number of flights?
@@ -209,8 +211,7 @@ Questions arising from the basic report:
 
 Things to implement later in the workflow due to the EDA: 1. We need to address the high correlation between time columns 2. We need to group low frequency airline carriers 3. Bivariate analysis
 
-Answering our questions
------------------------
+### Answering our questions
 
 > Why is there a day with double the number of flights?
 
@@ -246,8 +247,7 @@ flights_tbl %>%
 
 ![](README_files/figure-markdown_github/unnamed-chunk-8-1.png) Looks like the jump in the histogram is an artifact with the data visualization binning data.
 
-Bivariate analysis
-------------------
+### Bivariate analysis
 
 Next answer
 
@@ -273,4 +273,232 @@ flights_tbl %>%
     ## Warning: Computation failed in `stat_bin2d()`:
     ## 'from' must be a finite number
 
-![](README_files/figure-markdown_github/unnamed-chunk-9-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-9-1.png) \#\# Sampling: Inbalanced data
+
+### Theory/info
+
+In our data model, 97% are delayed. This means that the model always will predict "delayed". We have some options to deal with this.
+
+-   Undersampling (downsampling). Consequence: reducing data since we reduce the data to fit out imbalanced data.
+-   Upsampling. Consequence: risks of overfitting. Doesn't reduce training data
+-   Synthesising data makes extra records that are like the minority class (Doesn't reduce training set, Avoids some of the overfit risk of upsampling, Can weaken predictions if minority data is very similair to majority)
+
+We need to think about whether we need to k-fold cross-validation explicitly.
+
+-   Run the same model and assess robustness of coefficients
+-   We have an algorithm that needs explicit cross validation because it doesn't do it internally
+-   When we're going to run lots of models with hyper-parameter tuning do the results are more consistent
+
+We use bootstrapping when we want t fit a single model and ensure the results are robust. This will often do many more iterations than k-fold cross validation, making it better in cases where there's relatively small amounts of data.
+
+Packages we can use for sampling incude:
+
+-   modelr which facilitates bootstrap and k-fold cross validation strategies
+-   rsample allows us to bootstrap and perform a wide variety of cross validation tasks
+-   recipes allows us to upsample and downsample
+-   synthpop allows us to build synthesised samples
+
+``` r
+## The devtools are not updated in our cran verison, so we install them separate 
+install.packages("devtools")
+```
+
+    ## Installing package into 'C:/Users/Admin/Documents/R/win-library/3.4'
+    ## (as 'lib' is unspecified)
+
+    ## package 'devtools' successfully unpacked and MD5 sums checked
+    ## 
+    ## The downloaded binary packages are in
+    ##  C:\Users\Admin\AppData\Local\Temp\RtmpQ7EAbd\downloaded_packages
+
+``` r
+devtools::install_github("topepo/recipes")
+```
+
+    ## Skipping install of 'recipes' from a github remote, the SHA1 (4fb3fe10) has not changed since last install.
+    ##   Use `force = TRUE` to force installation
+
+### Practical
+
+``` r
+flights_tbl %>% 
+  as_data_frame() ->
+  flights #insert our flights data to in-memory to be able to use the chosen packages
+
+flights %>% 
+  mutate(was_delayed=arr_delay>5) -> # here we adding columns that are not related to predicting variables, like changing time to hours 
+  flights
+
+flights %>% 
+  modelr::resample_partition(c(train=0.7, test=0.3)) ->
+  splits
+
+splits %>% 
+  pluck("train") %>% 
+  as_data_frame()->
+  train_raw
+
+splits %>% 
+  pluck("test") %>% 
+  as_data_frame()->
+  test_raw
+```
+
+During the investigation we will look at the impact of upsampling. We'll see it in action in a bit. First prepping our basic features!
+
+#### Basic Feature Engineering
+
+``` r
+library(recipes)
+```
+
+    ## Loading required package: broom
+
+    ## 
+    ## Attaching package: 'recipes'
+
+    ## The following object is masked from 'package:stringr':
+    ## 
+    ##     fixed
+
+    ## The following object is masked from 'package:stats':
+    ## 
+    ##     step
+
+``` r
+basic_fe <- recipe(train_raw, was_delayed~. ) # we use was_delayed as predictor and everything else as variables
+
+basic_fe %>% 
+  step_rm(ends_with("time"), ends_with("delay"), tailnum, flight, minute, time_hour) %>%  # remove some variables
+ # step_corr(all_predictors()) %>% # remove highly correlates with other variables
+  step_zv(all_predictors()) %>% 
+  step_nzv(all_predictors()) %>% 
+  step_naomit(all_predictors()) %>% # remove rows that have missing values, since only 3 perc are missing
+  step_other(all_nominal(), threshold = 0.03)-> # will pool infrequently occuring values into an "other category" 
+  colscleaned_fe
+
+colscleaned_fe
+```
+
+    ## Data Recipe
+    ## 
+    ## Inputs:
+    ## 
+    ##       role #variables
+    ##    outcome          1
+    ##  predictor         19
+    ## 
+    ## Operations:
+    ## 
+    ## Delete terms ends_with("time"), ends_with("delay"), ...
+    ## Zero variance filter on all_predictors()
+    ## Sparse, unbalanced variable filter on all_predictors()
+    ## Removing rows with NA values in all_predictors()
+    ## Collapsing factor levels for all_nominal()
+
+``` r
+colscleaned_fe <- prep(colscleaned_fe, verbose = TRUE) # if error, type verbose=TRUE to print more error info
+```
+
+    ## oper 1 step rm [training] 
+    ## oper 2 step zv [training] 
+    ## oper 3 step nzv [training] 
+    ## oper 4 step naomit [training] 
+    ## oper 5 step other [training]
+
+``` r
+colscleaned_fe
+```
+
+    ## Data Recipe
+    ## 
+    ## Inputs:
+    ## 
+    ##       role #variables
+    ##    outcome          1
+    ##  predictor         19
+    ## 
+    ## Training data contained 235743 data points and 6650 incomplete rows. 
+    ## 
+    ## Operations:
+    ## 
+    ## Variables removed dep_time, sched_dep_time, arr_time, ... [trained]
+    ## Zero variance filter removed year [trained]
+    ## Sparse, unbalanced variable filter removed no terms [trained]
+    ## Removing rows with NA values in all_predictors()
+    ## Collapsing factor levels for carrier, origin, dest [trained]
+
+``` r
+train_prep1<-bake(colscleaned_fe, train_raw) # use the recipe to clean the train dataset
+```
+
+Now we need to process our numeric variables.
+
+``` r
+colscleaned_fe %>% 
+  step_log(distance) %>% 
+  step_num2factor(month, day, hour) ->
+  numscleaned_fe
+
+numscleaned_fe
+```
+
+    ## Data Recipe
+    ## 
+    ## Inputs:
+    ## 
+    ##       role #variables
+    ##    outcome          1
+    ##  predictor         19
+    ## 
+    ## Training data contained 235743 data points and 6650 incomplete rows. 
+    ## 
+    ## Operations:
+    ## 
+    ## Variables removed dep_time, sched_dep_time, arr_time, ... [trained]
+    ## Zero variance filter removed year [trained]
+    ## Sparse, unbalanced variable filter removed no terms [trained]
+    ## Removing rows with NA values in all_predictors()
+    ## Collapsing factor levels for carrier, origin, dest [trained]
+    ## Log transformation on distance
+    ## Factor variables from month, day, hour
+
+``` r
+numscleaned_fe <- prep(numscleaned_fe, verbose = TRUE)
+```
+
+    ## oper 1 step rm [pre-trained]
+    ## oper 2 step zv [pre-trained]
+    ## oper 3 step nzv [pre-trained]
+    ## oper 4 step naomit [pre-trained]
+    ## oper 5 step other [pre-trained]
+    ## oper 6 step log [training] 
+    ## oper 7 step num2factor [training]
+
+``` r
+numscleaned_fe
+```
+
+    ## Data Recipe
+    ## 
+    ## Inputs:
+    ## 
+    ##       role #variables
+    ##    outcome          1
+    ##  predictor         19
+    ## 
+    ## Training data contained 235743 data points and 6650 incomplete rows. 
+    ## 
+    ## Operations:
+    ## 
+    ## Variables removed dep_time, sched_dep_time, arr_time, ... [trained]
+    ## Zero variance filter removed year [trained]
+    ## Sparse, unbalanced variable filter removed no terms [trained]
+    ## Removing rows with NA values in all_predictors()
+    ## Collapsing factor levels for carrier, origin, dest [trained]
+    ## Log transformation on distance [trained]
+    ## Factor variables from month, day, hour [trained]
+
+``` r
+train_prep1<-bake(numscleaned_fe, train_raw)
+```
