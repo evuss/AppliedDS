@@ -143,10 +143,34 @@ identical(row_count,distinct_count)
 If the identical() is TRUE, they are exactly equal, meaning that we not have any duplicate rows. But are the number of rows unusual?
 
 ```{r}
-
+library(ggplot2)
 flights_tbl %>% 
   group_by(day) %>% 
-  summarise(n_unique=n(), n_distinct(flight)) %>% 
-  arrange(day)
+  summarise(n=n(), n_distinct(flight)) %>% 
+  as_data_frame() %>% 
+  ggplot(aes(x=day, y=n)) + geom_col()
+ 
 ```
-Looks like the jump in the histogram is an artifact with the data visualization and combining days. 
+Looks like the jump in the histogram is an artifact with the data visualization binning data. 
+
+## Bivariate analysis
+Next answer
+
+> Bivariate analysis
+
+```{r}
+
+flights_tbl %>% 
+  select_if(is.numeric) %>% 
+  as_data_frame() %>% 
+  gather(col, val, -dep_delay) %>% # takes our wide data and turn it into long data, aka pivot all columns without the dep_delay.
+  filter(col!="arr_delay",
+         dep_delay<500) %>% 
+  ggplot(aes(x=val, y=dep_delay)) +
+  #  geom_point() +  # this will take long time since it is plotting row by row
+  geom_bin2d() + 
+   facet_wrap(~col, scales = "free") # take different parts of our data to produce them as charts
+
+```
+
+

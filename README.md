@@ -236,28 +236,41 @@ identical(row_count,distinct_count)
 If the identical() is TRUE, they are exactly equal, meaning that we not have any duplicate rows. But are the number of rows unusual?
 
 ``` r
+library(ggplot2)
 flights_tbl %>% 
   group_by(day) %>% 
-  summarise(n_unique=n(), n_distinct(flight)) %>% 
-  arrange(day)
+  summarise(n=n(), n_distinct(flight)) %>% 
+  as_data_frame() %>% 
+  ggplot(aes(x=day, y=n)) + geom_col()
 ```
 
-    ## # Source:     lazy query [?? x 3]
-    ## # Database:   Microsoft SQL Server
-    ## #   12.00.0300[dbo@fbmcsads/WideWorldImporters-Standard]
-    ## # Ordered by: day
-    ##      day n_unique `n_distinct(flight)`
-    ##    <int>    <int>                <int>
-    ##  1     1    11036                 2532
-    ##  2     2    10808                 2542
-    ##  3     3    11211                 2491
-    ##  4     4    11059                 2449
-    ##  5     5    10858                 2463
-    ##  6     6    11059                 2484
-    ##  7     7    10985                 2427
-    ##  8     8    11271                 2436
-    ##  9     9    10857                 2496
-    ## 10    10    11227                 2504
-    ## # ... with more rows
+![](README_files/figure-markdown_github/unnamed-chunk-8-1.png) Looks like the jump in the histogram is an artifact with the data visualization binning data.
 
-Looks like the jump in the histogram is an artifact
+Bivariate analysis
+------------------
+
+Next answer
+
+> Bivariate analysis
+
+``` r
+flights_tbl %>% 
+  select_if(is.numeric) %>% 
+  as_data_frame() %>% 
+  gather(col, val, -dep_delay) %>% # takes our wide data and turn it into long data, aka pivot all columns without the dep_delay.
+  filter(col!="arr_delay",
+         dep_delay<500) %>% 
+  ggplot(aes(x=val, y=dep_delay)) +
+  #  geom_point() +  # this will take long time since it is plotting row by row
+  geom_bin2d() + 
+   facet_wrap(~col, scales = "free") # take different parts of our data to produce them as charts
+```
+
+    ## Applying predicate on the first 100 rows
+
+    ## Warning: Removed 1631 rows containing non-finite values (stat_bin2d).
+
+    ## Warning: Computation failed in `stat_bin2d()`:
+    ## 'from' must be a finite number
+
+![](README_files/figure-markdown_github/unnamed-chunk-9-1.png)
