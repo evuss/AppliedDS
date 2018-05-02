@@ -19,25 +19,134 @@ Packages we'll look at today:
 - yardstick / broom for evaluation
 - rmarkdown for documentation
 
+
 ## Working with databases
+We need a database connection before we can do anything with our database. Add it by the below code or go o Connections > New Connection. Inside the "New Connection" we can get the connection code. 
 
 ```{r}
 library(DBI)
 library(odbc)
 
-driver = "SQL Server"
-server = "fbmcsads.database.windows.net"
+Driver = "SQL Server"
+Server = "fbmcsads.database.windows.net"
 Database = "WideWorldImporters-Standard"
-uid = "adatumadmin"
+Uid = "adatumadmin"
 Pwd = "Pa55w.rdPa55w.rd"
 
 
 con <- dbConnect(odbc(),
-                 driver=driver,
-                 server=server,
+                 driver=Driver,
+                 server=Server,
                  database=Database,
                  pwd=Pwd,
-                 uid=uid
+                 uid=Uid
                  )
 ```
 
+Now that we have a DB connection, we can write SQL in a code chunk. We use the above connection name "con". 
+
+```{sql connection=con} 
+select top 5 * from flights
+
+```
+
+We can use bdplyr to construct dplyr commands that work on the DB. 
+
+```{r}
+library(tidyverse)
+library(dbplyr) # tip: read the introduction to dbplyr package to know how to connect to db
+flights_tbl <- tbl(con, "flights")
+
+flights_tbl %>% 
+  filter(month<=6) %>% 
+  group_by(origin) %>% 
+  summarise(n = n(), 
+            mean_dist= mean(distance)) %>% 
+  show_query()
+```
+We can also work with tables that aren'nt in the default schema.
+
+```{r}
+purchaseorders_tbl <- tbl(con, in_schema("purchasing", "purchaseorders")) # tip: see the documentation for in_schema in the dbplyr package to know hos to refer to a table in a schema. 
+
+purchaseorders_tbl %>% 
+  top_n(5)
+
+```
+
+To write SQL updates, create views etc - it is better to use the DBI packages instead of dbplyr. 
+
+We can use the 'Id()' function from DBI to work with schema more generically within a database. This means we aren't restricted to just SELECT statements. 
+
+```{r error=TRUE}
+# Create a schema to work in - errors if already exists
+dbGetQuery(con, "CREATE SCHEMA DBIexampleEVA") # creates my own schema in db
+# Write some data / drop & recreate the table if it exists already
+dbWriteTable(con, "iris", iris, overwrite=TRUE) # overwrites the table
+# Read from newly written table 
+head(dbReadTable(con,"iris"))
+# Read from a table in a schema
+head(dbReadTable(con,Id(schema="20774A", table="CustomerTransactions")))
+# If a write method is supported by the driver, this will work
+dbWriteTable(con, Id( schema="DBIexampleEVA", table="iris", overwrite=TRUE))
+
+```
+
+Some of our code could fail in that section so we used `error=TRUE` to be able to carry on even if some of the code errored. Great for optional cose or things with bad connection. 
+
+## Explorative Data Analysis (EDA) using the DataExplorer package
+High-level report to help us understand the data. 
+Group discrete features into a "other" category. 
+Make sure only to include the scheduled hour and not the 
+
+```{r eval=FALSE}
+flights_tbl %>% 
+  as_data_frame() %>% 
+  DataExplorer::GenerateReport()
+
+```
+Questions arising from the basic report:
+
+1. Why is there a day with double the number of flights?
+2. The date 31:st doesn't have as many flights as other days, do we need to adjust for this?
+3. Do we need to do anything about missings or can we just remove the rows?
+4. Why is there negative correlation between `flights` (flight number) and `distance`?
+
+Things to implement later in the workflow due to the EDA:
+1. We need to address the high correlation between time columns
+2. We need to group low frequency airline carriers
+3. Bivariate analysis
+
+## Answering our questions
+
+> Why is there a day with double the number of flights?
+
+Are there duplicate rows?
+
+```{r, eval=FALSE}
+flights_tbl %>% 
+  filter(day==15) %>% 
+  distinct() %>% 
+  summarise(n()) %>% 
+  as_data_frame()->
+  distinct_count
+
+flights_tbl %>% 
+  filter(day==15) %>% 
+  summarise(n())%>% 
+  as_data_frame() ->
+  row_count
+
+identical(row_count,distinct_count)
+```
+
+If the identical() is TRUE, they are exactly equal, meaning that we not have any duplicate rows. But are the number of rows unusual?
+
+```{r}
+
+flights_tbl %>% 
+  group_by(day) %>% 
+  summarise(n_unique=n(), n_distinct(flight)) %>% 
+  arrange(day)
+```
+Looks like the jump in the histogram is an artifact with the data visualization and combining days. 
