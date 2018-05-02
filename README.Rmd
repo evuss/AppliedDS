@@ -213,7 +213,8 @@ flights_tbl %>%
   flights #insert our flights data to in-memory to be able to use the chosen packages
 
 flights %>% 
-  mutate(was_delayed=arr_delay>5) -> # here we adding columns that are not related to predicting variables, like changing time to hours 
+  mutate(was_delayed=ifelse(arr_delay>5,"Delayed", "Not Delayed"),
+         week= ifelse(day %/% 7 > 3, 3, day %/% 7 )) -> # here we adding columns that are not related to predicting variables, like changing time to hours 
   flights
 
 flights %>% 
@@ -242,11 +243,12 @@ library(recipes)
 basic_fe <- recipe(train_raw, was_delayed~. ) # we use was_delayed as predictor and everything else as variables
 
 basic_fe %>% 
-  step_rm(ends_with("time"), ends_with("delay"), tailnum, flight, minute, time_hour) %>%  # remove some variables
+  step_rm(ends_with("time"), ends_with("delay"), tailnum, flight, minute, time_hour, day) %>%  # remove some variables
  # step_corr(all_predictors()) %>% # remove highly correlates with other variables
   step_zv(all_predictors()) %>% 
   step_nzv(all_predictors()) %>% 
   step_naomit(all_predictors()) %>% # remove rows that have missing values, since only 3 perc are missing
+  step_naomit(all_outcomes()) %>% 
   step_other(all_nominal(), threshold = 0.03)-> # will pool infrequently occuring values into an "other category" 
   colscleaned_fe
 
@@ -263,7 +265,7 @@ Now we need to process our numeric variables.
 ```{r}
 colscleaned_fe %>% 
   step_log(distance) %>% 
-  step_num2factor(month, day, hour) ->
+  step_num2factor(month, week, hour) ->
   numscleaned_fe
 
 numscleaned_fe
@@ -272,5 +274,18 @@ numscleaned_fe
 
 train_prep1<-bake(numscleaned_fe, train_raw)
 ```
+#### Time for upsampling!
+
+```{r}
+numscleaned_fe %>% 
+  step_upsample(all_outcomes(), ratio = 1) %>% 
+  prep(retain=TRUE) %>% 
+  juice() %>% 
+  bake(numscleaned_fe,.)-> # upsample to 50/50 by repeating the rows with delays 
+  train_prep2
+
+```
+
+## Building models
 
 

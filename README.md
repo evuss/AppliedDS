@@ -309,7 +309,7 @@ install.packages("devtools")
     ## package 'devtools' successfully unpacked and MD5 sums checked
     ## 
     ## The downloaded binary packages are in
-    ##  C:\Users\Admin\AppData\Local\Temp\RtmpQ7EAbd\downloaded_packages
+    ##  C:\Users\Admin\AppData\Local\Temp\RtmpcnOiNn\downloaded_packages
 
 ``` r
 devtools::install_github("topepo/recipes")
@@ -326,7 +326,8 @@ flights_tbl %>%
   flights #insert our flights data to in-memory to be able to use the chosen packages
 
 flights %>% 
-  mutate(was_delayed=arr_delay>5) -> # here we adding columns that are not related to predicting variables, like changing time to hours 
+  mutate(was_delayed=ifelse(arr_delay>5,"Delayed", "Not Delayed"),
+         week= ifelse(day %/% 7 > 3, 3, day %/% 7 )) -> # here we adding columns that are not related to predicting variables, like changing time to hours 
   flights
 
 flights %>% 
@@ -369,11 +370,12 @@ library(recipes)
 basic_fe <- recipe(train_raw, was_delayed~. ) # we use was_delayed as predictor and everything else as variables
 
 basic_fe %>% 
-  step_rm(ends_with("time"), ends_with("delay"), tailnum, flight, minute, time_hour) %>%  # remove some variables
+  step_rm(ends_with("time"), ends_with("delay"), tailnum, flight, minute, time_hour, day) %>%  # remove some variables
  # step_corr(all_predictors()) %>% # remove highly correlates with other variables
   step_zv(all_predictors()) %>% 
   step_nzv(all_predictors()) %>% 
   step_naomit(all_predictors()) %>% # remove rows that have missing values, since only 3 perc are missing
+  step_naomit(all_outcomes()) %>% 
   step_other(all_nominal(), threshold = 0.03)-> # will pool infrequently occuring values into an "other category" 
   colscleaned_fe
 
@@ -386,7 +388,7 @@ colscleaned_fe
     ## 
     ##       role #variables
     ##    outcome          1
-    ##  predictor         19
+    ##  predictor         20
     ## 
     ## Operations:
     ## 
@@ -394,6 +396,7 @@ colscleaned_fe
     ## Zero variance filter on all_predictors()
     ## Sparse, unbalanced variable filter on all_predictors()
     ## Removing rows with NA values in all_predictors()
+    ## Removing rows with NA values in all_outcomes()
     ## Collapsing factor levels for all_nominal()
 
 ``` r
@@ -404,7 +407,8 @@ colscleaned_fe <- prep(colscleaned_fe, verbose = TRUE) # if error, type verbose=
     ## oper 2 step zv [training] 
     ## oper 3 step nzv [training] 
     ## oper 4 step naomit [training] 
-    ## oper 5 step other [training]
+    ## oper 5 step naomit [training] 
+    ## oper 6 step other [training]
 
 ``` r
 colscleaned_fe
@@ -416,9 +420,9 @@ colscleaned_fe
     ## 
     ##       role #variables
     ##    outcome          1
-    ##  predictor         19
+    ##  predictor         20
     ## 
-    ## Training data contained 235743 data points and 6650 incomplete rows. 
+    ## Training data contained 235743 data points and 6527 incomplete rows. 
     ## 
     ## Operations:
     ## 
@@ -426,7 +430,8 @@ colscleaned_fe
     ## Zero variance filter removed year [trained]
     ## Sparse, unbalanced variable filter removed no terms [trained]
     ## Removing rows with NA values in all_predictors()
-    ## Collapsing factor levels for carrier, origin, dest [trained]
+    ## Removing rows with NA values in all_outcomes()
+    ## Collapsing factor levels for carrier, origin, dest, was_delayed [trained]
 
 ``` r
 train_prep1<-bake(colscleaned_fe, train_raw) # use the recipe to clean the train dataset
@@ -437,7 +442,7 @@ Now we need to process our numeric variables.
 ``` r
 colscleaned_fe %>% 
   step_log(distance) %>% 
-  step_num2factor(month, day, hour) ->
+  step_num2factor(month, week, hour) ->
   numscleaned_fe
 
 numscleaned_fe
@@ -449,9 +454,9 @@ numscleaned_fe
     ## 
     ##       role #variables
     ##    outcome          1
-    ##  predictor         19
+    ##  predictor         20
     ## 
-    ## Training data contained 235743 data points and 6650 incomplete rows. 
+    ## Training data contained 235743 data points and 6527 incomplete rows. 
     ## 
     ## Operations:
     ## 
@@ -459,9 +464,10 @@ numscleaned_fe
     ## Zero variance filter removed year [trained]
     ## Sparse, unbalanced variable filter removed no terms [trained]
     ## Removing rows with NA values in all_predictors()
-    ## Collapsing factor levels for carrier, origin, dest [trained]
+    ## Removing rows with NA values in all_outcomes()
+    ## Collapsing factor levels for carrier, origin, dest, was_delayed [trained]
     ## Log transformation on distance
-    ## Factor variables from month, day, hour
+    ## Factor variables from month, week, hour
 
 ``` r
 numscleaned_fe <- prep(numscleaned_fe, verbose = TRUE)
@@ -471,9 +477,10 @@ numscleaned_fe <- prep(numscleaned_fe, verbose = TRUE)
     ## oper 2 step zv [pre-trained]
     ## oper 3 step nzv [pre-trained]
     ## oper 4 step naomit [pre-trained]
-    ## oper 5 step other [pre-trained]
-    ## oper 6 step log [training] 
-    ## oper 7 step num2factor [training]
+    ## oper 5 step naomit [pre-trained]
+    ## oper 6 step other [pre-trained]
+    ## oper 7 step log [training] 
+    ## oper 8 step num2factor [training]
 
 ``` r
 numscleaned_fe
@@ -485,9 +492,9 @@ numscleaned_fe
     ## 
     ##       role #variables
     ##    outcome          1
-    ##  predictor         19
+    ##  predictor         20
     ## 
-    ## Training data contained 235743 data points and 6650 incomplete rows. 
+    ## Training data contained 235743 data points and 6527 incomplete rows. 
     ## 
     ## Operations:
     ## 
@@ -495,10 +502,25 @@ numscleaned_fe
     ## Zero variance filter removed year [trained]
     ## Sparse, unbalanced variable filter removed no terms [trained]
     ## Removing rows with NA values in all_predictors()
-    ## Collapsing factor levels for carrier, origin, dest [trained]
+    ## Removing rows with NA values in all_outcomes()
+    ## Collapsing factor levels for carrier, origin, dest, was_delayed [trained]
     ## Log transformation on distance [trained]
-    ## Factor variables from month, day, hour [trained]
+    ## Factor variables from month, week, hour [trained]
 
 ``` r
 train_prep1<-bake(numscleaned_fe, train_raw)
 ```
+
+#### Time for upsampling!
+
+``` r
+numscleaned_fe %>% 
+  step_upsample(all_outcomes(), ratio = 1) %>% 
+  prep(retain=TRUE) %>% 
+  juice() %>% 
+  bake(numscleaned_fe,.)-> # upsample to 50/50 by repeating the rows with delays 
+  train_prep2
+```
+
+Building models
+---------------
